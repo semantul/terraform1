@@ -1,0 +1,29 @@
+- hosts: k8s-master
+  tasks:
+
+  - name: initialize the cluster
+    become: yes
+    become_user: root
+    shell: kubeadm init --pod-network-cidr=172.16.0.0/16 >> ~ubuntu/cluster_initialized.txt
+
+  - name: create .kube directory
+    file:
+      path: ~ubuntu/.kube
+      state: directory
+      mode: 0755
+
+  - name: copy admin.conf to user's kube config
+    become: yes
+    become_user: root
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: ~ubuntu/.kube/config
+      remote_src: yes
+      owner: ubuntu
+      group: ubuntu
+
+  - name: install Pod network
+    shell: kubectl apply -f https://github.com/coreos/flannel/raw/master/Documentation/kube-flannel.yml >> ~ubuntu/pod_network_setup.txt
+
+  - name:
+    shell: kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0/aio/deploy/recommended.yaml

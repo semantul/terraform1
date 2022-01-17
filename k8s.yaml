@@ -1,0 +1,117 @@
+---
+- name: K8S on Ubuntu
+  hosts: all
+  become: true
+  tasks:
+
+  - name: Remove swapfile from /etc/fstab
+    mount:
+      name: "{{ item }}"
+      fstype: swap
+      state: absent
+    with_items:
+      - swap
+      - none
+
+  - name: Disable swap
+    command: swapoff -a
+    when: ansible_swaptotal_mb > 0
+
+  - name: Create modules-load.d/k8s.conf
+    copy:
+      dest: /etc/modules-load.d/k8s.conf
+      content: br_netfilter
+
+  - name: Cteate /etc/sysctl.d/k8s.conf
+    copy:
+      dest: /etc/sysctl.d/k8s.conf
+      content: |
+       net.bridge.bridge-nf-call-ip6tables = 1
+       net.bridge.bridge-nf-call-iptables = 1
+    register: sysctl
+
+  - name: Reload sysctl
+    shell: sudo sysctl --system
+    when: sysctl.changed
+
+  - name: Install packages for HTTPS
+    apt:
+      name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+      state: latest
+
+  - name: Add Docker’s official GPG key
+    ansible.builtin.apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      keyring: /usr/share/keyrings/docker-archive-keyring.gpg
+      state: present
+
+  - name: Add docker repo
+    ansible.builtin.apt_repository:
+      repo: deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu bionic stable
+      filename: docker
+
+  - name: Install Docker
+    apt:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+      state: latest
+    register: docker
+
+  - name: Create Docker daemon json
+    copy:
+      dest: /etc/docker/daemon.json
+      content: |
+       {
+          "exec-opts": ["native.cgroupdriver=systemd"],
+          "log-driver": "json-file",
+          "log-opts": {
+            "max-size": "100m"
+          },
+          "storage-driver": "overlay2"
+       }
+
+  - name: Restart Docker
+    ansible.builtin.systemd:
+      name: docker
+      daemon_reload: yes
+      state: restarted
+
+  - name: Add K8S official GPG key
+    ansible.builtin.apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      keyring: /usr/share/keyrings/kubernetes-archive-keyring.gpg
+      state: present
+
+  - name: Add K8S repo
+    ansible.builtin.apt_repository:
+      repo: deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main
+      filename: kubernetes
+
+  - name: Install k8s
+    apt:
+      name:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+  - name: apt-mark hold kubelet
+    dpkg_selections:
+      name: kubelet
+      selection: hold
+
+  - name: apt-mark hold kubeadm
+    dpkg_selections:
+      name: kubeadm
+      selection: hold
+
+  - name: apt-mark hold kubectl
+    dpkg_selections:
+      name: kubectl
+      selection: hold
